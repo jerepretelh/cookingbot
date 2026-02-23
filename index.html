@@ -1,0 +1,477 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  Play, Pause, Settings, ChevronRight, 
+  Volume2, VolumeX, Hand, Clock, UtensilsCrossed, X, Plus, Minus, Loader2
+} from 'lucide-react';
+
+const App = () => {
+  const apiKey = ""; 
+
+  const [config, setConfig] = useState({
+    ingredient: "Huevo",
+    prepTime: 10,
+    cycles: 3,
+    transitionTime: 5, 
+    steps: [
+      { id: 1, name: "Cocinar Lado A", duration: 30, color: "bg-emerald-500" },
+      { id: 2, name: "Cocinar Lado B", duration: 20, color: "bg-orange-500" }
+    ]
+  });
+
+  const [isRunning, setIsRunning] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [currentCycle, setCurrentCycle] = useState(0); 
+  const [currentStepIndex, setCurrentStepIndex] = useState(-1); 
+  const [timeLeft, setTimeLeft] = useState(config.prepTime);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [showOverlay, setShowOverlay] = useState(false);
+  const [overlayMessage, setOverlayMessage] = useState("");
+  const [isManualWait, setIsManualWait] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isLoadingAudio, setIsLoadingAudio] = useState(false);
+  const [confetti, setConfetti] = useState([]);
+
+  const timerRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const nextAudioBuffer = useRef(null); 
+  const prefetchTriggered = useRef(false);
+
+  // --- Confetti Logic ---
+  const launchConfetti = () => {
+    const newConfetti = Array.from({ length: 50 }).map((_, i) => ({
+      id: Date.now() + i,
+      x: Math.random() * 100,
+      y: -10,
+      color: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'][Math.floor(Math.random() * 5)],
+      size: Math.random() * 10 + 5,
+      delay: Math.random() * 2,
+      duration: Math.random() * 3 + 2
+    }));
+    setConfetti(newConfetti);
+    setTimeout(() => setConfetti([]), 5000);
+  };
+
+  // --- Motor de Audio ---
+  const fetchAudioBuffer = async (text) => {
+    try {
+      const payload = {
+        contents: [{ parts: [{ text: `Dilo corto y claro: ${text}` }] }],
+        generationConfig: {
+          responseModalities: ["AUDIO"],
+          speechConfig: {
+            voiceConfig: { prebuiltVoiceConfig: { voiceName: "Kore" } }
+          }
+        },
+        model: "gemini-2.5-flash-preview-tts"
+      };
+
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }
+      );
+
+      const result = await response.json();
+      const base64Audio = result.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+
+      if (base64Audio) {
+        if (!audioContextRef.current) {
+          audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+        }
+        const binaryString = atob(base64Audio);
+        const len = binaryString.length;
+        const bytes = new Int16Array(len / 2);
+        for (let i = 0; i < len; i += 2) {
+          bytes[i / 2] = (binaryString.charCodeAt(i+1) << 8) | binaryString.charCodeAt(i);
+        }
+        const buffer = audioContextRef.current.createBuffer(1, bytes.length, 24000);
+        const channelData = buffer.getChannelData(0);
+        for (let i = 0; i < bytes.length; i++) {
+          channelData[i] = bytes[i] / 32768;
+        }
+        return buffer;
+      }
+    } catch (error) {
+      console.error("Audio pre-fetch error:", error);
+    }
+    return null;
+  };
+
+  const playBufferedAudio = (buffer) => {
+    if (!buffer || isMuted) return;
+    try {
+      if (audioContextRef.current.state === 'suspended') {
+        audioContextRef.current.resume();
+      }
+      const source = audioContextRef.current.createBufferSource();
+      source.buffer = buffer;
+      source.connect(audioContextRef.current.destination);
+      source.start();
+    } catch (e) {
+      console.error("Error playing audio:", e);
+    }
+  };
+
+  const speakNow = async (text) => {
+    setIsSpeaking(true);
+    setIsLoadingAudio(true);
+    const buffer = await fetchAudioBuffer(text);
+    setIsLoadingAudio(false);
+    playBufferedAudio(buffer);
+    setIsSpeaking(false);
+  };
+
+  const prefetchNextMessage = async () => {
+    const ing = config.ingredient;
+    let nextMsg = "";
+    if (currentStepIndex === -1) {
+      nextMsg = `Aceite listo. Pon el ${ing} ahora.`;
+    } else if (currentStepIndex === -2) {
+      nextMsg = `Listo para el siguiente ${ing}. Prepáralo.`;
+    } else {
+      const isLastStep = currentStepIndex === config.steps.length - 1;
+      const isLastCycle = currentCycle === config.cycles;
+      if (!isLastStep) {
+        nextMsg = `¡Voltea el ${ing}!`;
+      } else if (!isLastCycle) {
+        nextMsg = `${ing} listo. Sácalo.`;
+      } else {
+        nextMsg = `Cocción terminada. Buen provecho.`;
+      }
+    }
+    if (nextMsg) nextAudioBuffer.current = await fetchAudioBuffer(nextMsg);
+  };
+
+  useEffect(() => {
+    if (isRunning && timeLeft > 0 && !showOverlay && !isLoadingAudio) {
+      if (timeLeft === 5 && !prefetchTriggered.current) {
+        prefetchTriggered.current = true;
+        prefetchNextMessage();
+      }
+      timerRef.current = setInterval(() => {
+        setTimeLeft((prev) => prev - 1);
+      }, 1000);
+    } else if (timeLeft === 0 && isRunning && !showOverlay) {
+      handleStepEnd();
+    }
+    return () => clearInterval(timerRef.current);
+  }, [isRunning, timeLeft, showOverlay, isLoadingAudio]);
+
+  const handleStepEnd = () => {
+    clearInterval(timerRef.current);
+    prefetchTriggered.current = false; 
+
+    if (nextAudioBuffer.current) {
+      playBufferedAudio(nextAudioBuffer.current);
+      nextAudioBuffer.current = null;
+    }
+
+    const ing = config.ingredient;
+    
+    if (currentCycle === 0) {
+      triggerOverlay(`Aceite listo. Pon el ${ing} ahora.`, true, () => {
+        setCurrentCycle(1);
+        setCurrentStepIndex(0);
+        setTimeLeft(config.steps[0]?.duration || 30);
+      });
+      return;
+    }
+
+    if (currentStepIndex === -2) {
+      triggerOverlay(`Pon el siguiente ${ing}.`, true, () => {
+        setCurrentStepIndex(0);
+        setTimeLeft(config.steps[0]?.duration || 30);
+      });
+      return;
+    }
+
+    const isLastStep = currentStepIndex === config.steps.length - 1;
+    const isLastCycle = currentCycle === config.cycles;
+
+    if (!isLastStep) {
+      const nextIdx = currentStepIndex + 1;
+      triggerOverlay(`¡VOLTEA EL ${ing.toUpperCase()}!`, false, () => {
+        setCurrentStepIndex(nextIdx);
+        setTimeLeft(config.steps[nextIdx]?.duration || 20);
+      });
+    } else if (!isLastCycle) {
+      launchConfetti();
+      triggerOverlay(`${ing.toUpperCase()} LISTO. SÁCALO.`, true, () => {
+        setCurrentCycle(prev => prev + 1);
+        setCurrentStepIndex(-2); 
+        setTimeLeft(config.transitionTime);
+      });
+    } else {
+      setIsRunning(false);
+      launchConfetti();
+      triggerOverlay("¡TERMINADO!", true, () => resetTimer());
+    }
+  };
+
+  const triggerOverlay = (msg, manual, callback) => {
+    setOverlayMessage(msg.toUpperCase());
+    setIsManualWait(manual);
+    setShowOverlay(true);
+    window._nextAction = callback;
+    if (!manual) window._overlayTimeout = setTimeout(proceed, 4000);
+  };
+
+  const proceed = () => {
+    if (window._overlayTimeout) clearTimeout(window._overlayTimeout);
+    setShowOverlay(false);
+    if (window._nextAction) {
+      window._nextAction();
+      window._nextAction = null;
+    }
+  };
+
+  const resetTimer = () => {
+    setIsRunning(false);
+    setCurrentCycle(0);
+    setCurrentStepIndex(-1);
+    setTimeLeft(config.prepTime);
+    setShowOverlay(false);
+    nextAudioBuffer.current = null;
+    if (window._overlayTimeout) clearTimeout(window._overlayTimeout);
+  };
+
+  const theme = (() => {
+    if (currentStepIndex === -1) return { name: "Calentando", color: "text-blue-400", stroke: "#60a5fa", bg: "bg-blue-500/10" };
+    if (currentStepIndex === -2) return { name: "Esperando unidad", color: "text-purple-400", stroke: "#c084fc", bg: "bg-purple-500/10" };
+    const step = config.steps[currentStepIndex];
+    if (!step) return { name: "Cargando", color: "text-white", stroke: "#ffffff", bg: "bg-zinc-800" };
+    const colors = { "bg-emerald-500": "#10b981", "bg-orange-500": "#f97316" };
+    return { name: step.name, color: "text-white", stroke: colors[step.color] || "#ffffff", bg: `${step.color}/20` };
+  })();
+
+  const maxTime = (() => {
+    if (currentStepIndex === -1) return config.prepTime;
+    if (currentStepIndex === -2) return config.transitionTime;
+    return config.steps[currentStepIndex]?.duration || 30;
+  })();
+  
+  const radius = 45; 
+  const circumference = 2 * Math.PI * radius;
+  const progressPercent = timeLeft / maxTime;
+  const offset = circumference - (isNaN(progressPercent) ? 0 : progressPercent) * circumference;
+
+  // --- Quantity Input Component ---
+  const QuantityInput = ({ value, onChange, label }) => (
+    <div className="bg-zinc-900/50 backdrop-blur border border-white/5 p-4 rounded-3xl flex items-center justify-between">
+      <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">{label}</span>
+      <div className="flex items-center gap-6 bg-zinc-800/80 p-1 rounded-2xl">
+        <button 
+          onClick={() => onChange(Math.max(1, value - 1))}
+          className="w-10 h-10 flex items-center justify-center text-zinc-400 active:scale-90 transition-transform"
+        >
+          <Minus size={18} />
+        </button>
+        <span className="text-xl font-black w-8 text-center">{value}</span>
+        <button 
+          onClick={() => onChange(value + 1)}
+          className="w-10 h-10 flex items-center justify-center text-zinc-400 active:scale-90 transition-transform"
+        >
+          <Plus size={18} />
+        </button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="h-screen bg-black text-white flex flex-col font-sans overflow-hidden select-none relative">
+      
+      {/* Confetti Container */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden z-[60]">
+        {confetti.map(p => (
+          <div 
+            key={p.id}
+            className="absolute rounded-sm"
+            style={{
+              left: `${p.x}%`,
+              top: `${p.y}%`,
+              width: `${p.size}px`,
+              height: `${p.size}px`,
+              backgroundColor: p.color,
+              animation: `fall ${p.duration}s linear forwards`,
+              animationDelay: `${p.delay}s`
+            }}
+          />
+        ))}
+      </div>
+
+      <style>{`
+        @keyframes fall {
+          to { transform: translateY(110vh) rotate(720deg); }
+        }
+      `}</style>
+
+      {/* Controles Superiores */}
+      <div className="absolute top-4 left-6 right-6 flex justify-between items-center z-10">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/30">
+            <UtensilsCrossed size={16} />
+          </div>
+          <div>
+            <h2 className="text-xs font-black uppercase italic tracking-tighter">Chef Bot</h2>
+            <div className={`text-[8px] font-bold uppercase tracking-widest ${isSpeaking ? 'text-green-500 animate-pulse' : 'text-zinc-500'}`}>
+              {isSpeaking ? 'Voz activa' : 'Sincronizado'}
+            </div>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={() => setIsMuted(!isMuted)} className="w-10 h-10 bg-zinc-900/80 backdrop-blur rounded-xl flex items-center justify-center border border-white/5 active:scale-90 transition-transform">
+            {isMuted ? <VolumeX size={18} className="text-zinc-500" /> : <Volume2 size={18} />}
+          </button>
+          <button onClick={() => setIsSettingsOpen(true)} className="w-10 h-10 bg-zinc-900/80 backdrop-blur rounded-xl flex items-center justify-center border border-white/5 active:scale-90 transition-transform">
+            <Settings size={18} />
+          </button>
+        </div>
+      </div>
+
+      {/* Overlay de Carga de Audio */}
+      {isLoadingAudio && (
+        <div className="fixed inset-0 z-[110] bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center">
+          <div className="bg-zinc-900 p-8 rounded-[40px] flex flex-col items-center gap-4 shadow-2xl border border-white/10">
+            <Loader2 size={40} className="animate-spin text-blue-500" />
+            <span className="font-black uppercase tracking-widest text-[10px]">Cargando voz...</span>
+          </div>
+        </div>
+      )}
+
+      {/* Overlay de Acción */}
+      {showOverlay && (
+        <div className={`fixed inset-0 z-50 flex flex-col items-center justify-center p-6 text-center transition-all ${isManualWait ? 'bg-blue-600' : 'bg-orange-600'}`}>
+          <div className="mb-6 animate-bounce">
+            {isManualWait ? <Hand size={80} /> : <div className="w-16 h-16 border-4 border-white border-t-transparent rounded-full animate-spin"></div>}
+          </div>
+          <h2 className="text-3xl md:text-5xl font-black mb-8 italic leading-tight px-4">{overlayMessage}</h2>
+          {isManualWait && (
+            <button onClick={proceed} className="bg-white text-blue-600 px-12 py-5 rounded-2xl text-xl font-black uppercase shadow-2xl active:scale-95 transition-transform">Hecho</button>
+          )}
+        </div>
+      )}
+
+      {/* Main UI */}
+      <main className="flex-1 flex flex-col items-center justify-between py-12 px-4">
+        
+        {/* Unidades/Ciclos */}
+        <div className="flex gap-1.5 mt-8">
+          {[...Array(config.cycles)].map((_, i) => (
+            <div key={i} className={`h-1.5 w-6 rounded-full transition-all duration-500 ${i + 1 < currentCycle ? 'bg-blue-500 shadow-[0_0_8px_#3b82f6]' : i + 1 === currentCycle ? 'bg-white w-8 shadow-[0_0_10px_white]' : 'bg-zinc-800'}`} />
+          ))}
+        </div>
+
+        {/* Timer Círculo */}
+        <div className="relative w-full max-w-[450px] max-h-[50vh] flex items-center justify-center flex-1 my-4">
+          <div className={`absolute inset-0 blur-[80px] opacity-15 rounded-full ${theme.bg}`}></div>
+          <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
+            <circle cx="50" cy="50" r={radius} stroke="rgba(255,255,255,0.03)" strokeWidth="3" fill="none" />
+            <circle 
+              cx="50" cy="50" r={radius} 
+              stroke={theme.stroke} 
+              strokeWidth="4" 
+              fill="none"
+              strokeDasharray={circumference}
+              strokeDashoffset={offset}
+              className="transition-all duration-1000 ease-linear" 
+              strokeLinecap="round" 
+            />
+          </svg>
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <span className="text-8xl md:text-[140px] font-black leading-none tabular-nums tracking-tighter">{timeLeft}</span>
+            <div className={`flex items-center gap-2 font-black uppercase tracking-[0.2em] text-[10px] mt-2 ${theme.color}`}>
+              <Clock size={12} /> {theme.name}
+            </div>
+          </div>
+        </div>
+
+        {/* Footer Controles */}
+        <div className="w-full max-w-xs flex flex-col items-center gap-6">
+          <button 
+            disabled={isLoadingAudio}
+            onClick={async () => {
+              if (!audioContextRef.current) {
+                audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+              }
+              if (audioContextRef.current.state === 'suspended') await audioContextRef.current.resume();
+              
+              const next = !isRunning;
+              if (next && currentCycle === 0 && currentStepIndex === -1 && timeLeft === config.prepTime) {
+                await speakNow(`Iniciando preparación de ${config.cycles} unidades de ${config.ingredient}`);
+              }
+              setIsRunning(next);
+            }}
+            className={`w-full py-6 rounded-[32px] text-xl font-black uppercase tracking-widest flex items-center justify-center gap-4 transition-all active:scale-95 shadow-xl ${isRunning ? 'bg-zinc-900 border border-white/10 text-zinc-400' : 'bg-white text-black'}`}
+          >
+            {isRunning ? <Pause size={24} fill="currentColor" /> : <Play size={24} fill="currentColor" />}
+            {isRunning ? 'Pausa' : 'Iniciar'}
+          </button>
+          
+          <button onClick={resetTimer} className="text-zinc-600 font-black uppercase text-[9px] tracking-[0.3em] hover:text-white transition-colors">Reiniciar todo</button>
+        </div>
+      </main>
+
+      {/* Ajustes */}
+      {isSettingsOpen && (
+        <div className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-3xl p-6 overflow-y-auto">
+          <div className="max-w-md mx-auto h-full flex flex-col">
+            <div className="flex justify-between items-center mb-8">
+              <h2 className="text-3xl font-black uppercase italic text-blue-500">Ajustes</h2>
+              <button onClick={() => setIsSettingsOpen(false)} className="w-10 h-10 bg-zinc-800 rounded-xl flex items-center justify-center active:scale-90 transition-transform">
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="space-y-4 flex-1">
+               <div className="bg-zinc-900 p-6 rounded-[32px] border border-white/5">
+                 <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Ingrediente</label>
+                 <input type="text" value={config.ingredient} onChange={e => setConfig({...config, ingredient: e.target.value})} className="bg-transparent text-3xl font-black w-full outline-none uppercase italic text-white placeholder-zinc-700" />
+               </div>
+               
+               <QuantityInput 
+                 label="Unidades" 
+                 value={config.cycles} 
+                 onChange={val => setConfig({...config, cycles: val})} 
+               />
+
+               <QuantityInput 
+                 label="Prep. Aceite (s)" 
+                 value={config.prepTime} 
+                 onChange={val => setConfig({...config, prepTime: val})} 
+               />
+
+               <div className="bg-zinc-900/30 p-6 rounded-[32px] border border-white/5 mt-4">
+                 <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest block mb-4 italic">Tiempos de cocción</label>
+                 <div className="space-y-4">
+                   {config.steps.map((step, idx) => (
+                     <div key={step.id} className="flex items-center justify-between">
+                       <span className="text-[10px] font-bold uppercase text-zinc-400">{step.name}</span>
+                       <div className="flex items-center gap-4 bg-zinc-800 p-1 rounded-xl">
+                         <button onClick={() => {
+                           const s = [...config.steps]; s[idx].duration = Math.max(1, s[idx].duration - 1); setConfig({...config, steps: s});
+                         }} className="w-8 h-8 flex items-center justify-center text-zinc-500"><Minus size={14}/></button>
+                         <span className="w-8 text-center font-black text-blue-400 text-sm">{step.duration}s</span>
+                         <button onClick={() => {
+                           const s = [...config.steps]; s[idx].duration += 1; setConfig({...config, steps: s});
+                         }} className="w-8 h-8 flex items-center justify-center text-zinc-500"><Plus size={14}/></button>
+                       </div>
+                     </div>
+                   ))}
+                 </div>
+               </div>
+            </div>
+
+            <div className="pt-6">
+              <button onClick={() => {setIsSettingsOpen(false); resetTimer();}} className="w-full py-6 bg-blue-600 rounded-[28px] font-black uppercase text-lg shadow-xl active:scale-95 transition-transform">Actualizar Chef</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default App;
