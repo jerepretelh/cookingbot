@@ -5,7 +5,9 @@ const PRESET_RECIPES = {
     id: 'huevo',
     name: 'Huevo frito',
     ingredient: 'Huevo',
-    prepTime: 10,
+    emoji: '🥚',
+    preheatPanTime: 40,
+    heatOilTime: 40,
     cycles: 3,
     transitionTime: 5,
     isPreset: true,
@@ -18,7 +20,9 @@ const PRESET_RECIPES = {
     id: 'papas',
     name: 'Papas fritas',
     ingredient: 'Papas',
-    prepTime: 8,
+    emoji: '🥔',
+    preheatPanTime: 40,
+    heatOilTime: 40,
     cycles: 4,
     transitionTime: 6,
     isPreset: true,
@@ -31,7 +35,9 @@ const PRESET_RECIPES = {
     id: 'carne',
     name: 'Bife / Carne',
     ingredient: 'Carne',
-    prepTime: 12,
+    emoji: '🥩',
+    preheatPanTime: 40,
+    heatOilTime: 40,
     cycles: 2,
     transitionTime: 8,
     isPreset: true,
@@ -44,7 +50,9 @@ const PRESET_RECIPES = {
     id: 'pancakes',
     name: 'Pancakes',
     ingredient: 'Pancake',
-    prepTime: 5,
+    emoji: '🥞',
+    preheatPanTime: 40,
+    heatOilTime: 40,
     cycles: 6,
     transitionTime: 4,
     isPreset: true,
@@ -68,9 +76,17 @@ export const getCustomRecipes = () => {
 
 export const saveCustomRecipe = (recipe) => {
   const custom = getCustomRecipes();
-  custom[recipe.id] = { ...recipe, isPreset: false };
+  const normalized = normalizeRecipe(recipe);
+  custom[normalized.id] = { ...normalized, isPreset: false };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(custom));
 };
+
+const normalizeRecipe = (r) => ({
+  ...r,
+  emoji: r.emoji || '👨‍🍳',
+  preheatPanTime: r.preheatPanTime ?? 40,
+  heatOilTime: r.heatOilTime ?? r.prepTime ?? 40,
+});
 
 export const deleteCustomRecipe = (id) => {
   const custom = getCustomRecipes();
@@ -78,15 +94,26 @@ export const deleteCustomRecipe = (id) => {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(custom));
 };
 
-export const getAllRecipes = () => ({ ...PRESET_RECIPES, ...getCustomRecipes() });
+export const getAllRecipes = () => {
+  const presets = Object.values(PRESET_RECIPES).map(normalizeRecipe);
+  const custom = Object.values(getCustomRecipes()).map(normalizeRecipe);
+  return [...presets, ...custom].reduce((acc, r) => {
+    acc[r.id] = r;
+    return acc;
+  }, {});
+};
 
-export const getRecipeConfig = (recipe) => ({
-  recipeId: recipe.id,
-  ingredient: recipe.ingredient,
-  prepTime: recipe.prepTime,
-  cycles: recipe.cycles,
-  transitionTime: recipe.transitionTime,
-  steps: recipe.steps.map((s) => ({ ...s })),
-});
+export const getRecipeConfig = (recipe) => {
+  const r = normalizeRecipe(recipe);
+  return {
+    recipeId: r.id,
+    ingredient: r.ingredient,
+    preheatPanTime: r.preheatPanTime ?? 40,
+    heatOilTime: r.heatOilTime ?? 40,
+    cycles: r.cycles,
+    transitionTime: r.transitionTime,
+    steps: r.steps.map((s) => ({ ...s })),
+  };
+};
 
 export const createRecipeId = () => `custom-${Date.now()}`;

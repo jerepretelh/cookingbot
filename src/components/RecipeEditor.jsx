@@ -1,49 +1,51 @@
-import { useState } from 'react';
-import { createRecipeId, saveCustomRecipe } from '../data/recipes';
+import { useState, useEffect } from 'react';
+import { saveCustomRecipe, createRecipeId } from '../data/recipes';
 import { SVGIcon } from './SVGIcon';
 
-const defaultRecipe = {
-  name: '',
-  ingredient: '',
-  preheatPanTime: 40,
-  heatOilTime: 40,
-  cycles: 3,
-  transitionTime: 5,
-  steps: [
-    { id: 1, name: 'Lado A', duration: 45, hex: '#52c18d' },
-    { id: 2, name: 'Lado B', duration: 40, hex: '#f97316' },
-  ],
-};
+export const RecipeEditor = ({ recipe, onClose, onSave }) => {
+  const [form, setForm] = useState({
+    name: recipe.name,
+    ingredient: recipe.ingredient,
+    preheatPanTime: recipe.preheatPanTime ?? recipe.prepTime ?? 40,
+    heatOilTime: recipe.heatOilTime ?? recipe.prepTime ?? 40,
+    cycles: recipe.cycles,
+    transitionTime: recipe.transitionTime,
+    steps: recipe.steps?.map((s) => ({ ...s })) ?? [
+      { id: 1, name: 'Lado A', duration: 45, hex: '#52c18d' },
+      { id: 2, name: 'Lado B', duration: 40, hex: '#f97316' },
+    ],
+  });
 
-export const NewRecipeForm = ({ onClose, onSave }) => {
-  const [recipe, setRecipe] = useState(defaultRecipe);
-  const [error, setError] = useState('');
+  useEffect(() => {
+    setForm({
+      name: recipe.name,
+      ingredient: recipe.ingredient,
+      preheatPanTime: recipe.preheatPanTime ?? 40,
+      heatOilTime: recipe.heatOilTime ?? 40,
+      cycles: recipe.cycles,
+      transitionTime: recipe.transitionTime,
+      steps: recipe.steps?.map((s) => ({ ...s })) ?? [
+        { id: 1, name: 'Lado A', duration: 45, hex: '#52c18d' },
+        { id: 2, name: 'Lado B', duration: 40, hex: '#f97316' },
+      ],
+    });
+  }, [recipe.id]);
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (!recipe.name.trim()) {
-      setError('Ponle un nombre');
-      return;
-    }
-    if (!recipe.ingredient.trim()) {
-      setError('¿Qué vas a cocinar?');
-      return;
-    }
-    const newRecipe = {
+  const handleSave = () => {
+    const updated = {
       ...recipe,
-      id: createRecipeId(),
+      ...form,
+      id: recipe.isPreset ? createRecipeId() : recipe.id,
       isPreset: false,
-      name: recipe.name.trim(),
-      ingredient: recipe.ingredient.trim(),
     };
-    saveCustomRecipe(newRecipe);
-    onSave(newRecipe);
+    saveCustomRecipe(updated);
+    onSave(updated);
   };
 
   return (
     <div className="fixed inset-0 z-[110] bg-zinc-900 p-6 flex flex-col overflow-auto">
       <div className="flex justify-between items-center mb-6">
-        <h2 className="text-xl font-bold">Nueva receta</h2>
+        <h2 className="text-xl font-bold">Editar receta</h2>
         <button
           onClick={onClose}
           className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center"
@@ -52,14 +54,13 @@ export const NewRecipeForm = ({ onClose, onSave }) => {
         </button>
       </div>
 
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4 flex-1 pb-8">
+      <div className="flex flex-col gap-4 flex-1 pb-8">
         <div>
           <label className="text-xs text-zinc-400 mb-1 block">Nombre</label>
           <input
             type="text"
-            value={recipe.name}
-            onChange={(e) => setRecipe({ ...recipe, name: e.target.value })}
-            placeholder="Ej: Tostadas"
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
             className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-base outline-none focus:border-emerald-500"
           />
         </div>
@@ -68,9 +69,8 @@ export const NewRecipeForm = ({ onClose, onSave }) => {
           <label className="text-xs text-zinc-400 mb-1 block">Ingrediente</label>
           <input
             type="text"
-            value={recipe.ingredient}
-            onChange={(e) => setRecipe({ ...recipe, ingredient: e.target.value })}
-            placeholder="Ej: Huevo, Tostada..."
+            value={form.ingredient}
+            onChange={(e) => setForm({ ...form, ingredient: e.target.value })}
             className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-base outline-none focus:border-emerald-500"
           />
         </div>
@@ -80,15 +80,15 @@ export const NewRecipeForm = ({ onClose, onSave }) => {
           <div className="flex items-center gap-4 bg-white/5 rounded-2xl px-4 py-3 border border-white/10">
             <button
               type="button"
-              onClick={() => setRecipe({ ...recipe, cycles: Math.max(1, recipe.cycles - 1) })}
+              onClick={() => setForm({ ...form, cycles: Math.max(1, form.cycles - 1) })}
               className="w-9 h-9 bg-white text-black rounded-full font-bold"
             >
               −
             </button>
-            <span className="flex-1 text-center font-bold">{recipe.cycles}</span>
+            <span className="flex-1 text-center font-bold">{form.cycles}</span>
             <button
               type="button"
-              onClick={() => setRecipe({ ...recipe, cycles: recipe.cycles + 1 })}
+              onClick={() => setForm({ ...form, cycles: form.cycles + 1 })}
               className="w-9 h-9 bg-white text-black rounded-full font-bold"
             >
               +
@@ -97,19 +97,19 @@ export const NewRecipeForm = ({ onClose, onSave }) => {
         </div>
 
         <div>
-          <label className="text-xs text-zinc-400 mb-1 block">Calentar sartén (s) – se puede omitir</label>
+          <label className="text-xs text-zinc-400 mb-1 block">Calentar sartén (s)</label>
           <div className="flex items-center gap-4 bg-white/5 rounded-2xl px-4 py-3 border border-white/10">
             <button
               type="button"
-              onClick={() => setRecipe({ ...recipe, preheatPanTime: Math.max(5, recipe.preheatPanTime - 5) })}
+              onClick={() => setForm({ ...form, preheatPanTime: Math.max(5, form.preheatPanTime - 5) })}
               className="w-9 h-9 bg-white/20 rounded-full font-bold"
             >
               −
             </button>
-            <span className="flex-1 text-center font-bold">{recipe.preheatPanTime}s</span>
+            <span className="flex-1 text-center font-bold">{form.preheatPanTime}s</span>
             <button
               type="button"
-              onClick={() => setRecipe({ ...recipe, preheatPanTime: recipe.preheatPanTime + 5 })}
+              onClick={() => setForm({ ...form, preheatPanTime: form.preheatPanTime + 5 })}
               className="w-9 h-9 bg-white/20 rounded-full font-bold"
             >
               +
@@ -122,15 +122,15 @@ export const NewRecipeForm = ({ onClose, onSave }) => {
           <div className="flex items-center gap-4 bg-white/5 rounded-2xl px-4 py-3 border border-white/10">
             <button
               type="button"
-              onClick={() => setRecipe({ ...recipe, heatOilTime: Math.max(5, recipe.heatOilTime - 5) })}
+              onClick={() => setForm({ ...form, heatOilTime: Math.max(5, form.heatOilTime - 5) })}
               className="w-9 h-9 bg-white/20 rounded-full font-bold"
             >
               −
             </button>
-            <span className="flex-1 text-center font-bold">{recipe.heatOilTime}s</span>
+            <span className="flex-1 text-center font-bold">{form.heatOilTime}s</span>
             <button
               type="button"
-              onClick={() => setRecipe({ ...recipe, heatOilTime: recipe.heatOilTime + 5 })}
+              onClick={() => setForm({ ...form, heatOilTime: form.heatOilTime + 5 })}
               className="w-9 h-9 bg-white/20 rounded-full font-bold"
             >
               +
@@ -143,15 +143,15 @@ export const NewRecipeForm = ({ onClose, onSave }) => {
           <div className="flex items-center gap-4 bg-white/5 rounded-2xl px-4 py-3 border border-white/10">
             <button
               type="button"
-              onClick={() => setRecipe({ ...recipe, transitionTime: Math.max(1, recipe.transitionTime - 1) })}
+              onClick={() => setForm({ ...form, transitionTime: Math.max(1, form.transitionTime - 1) })}
               className="w-9 h-9 bg-white/20 rounded-full font-bold"
             >
               −
             </button>
-            <span className="flex-1 text-center font-bold">{recipe.transitionTime}s</span>
+            <span className="flex-1 text-center font-bold">{form.transitionTime}s</span>
             <button
               type="button"
-              onClick={() => setRecipe({ ...recipe, transitionTime: recipe.transitionTime + 1 })}
+              onClick={() => setForm({ ...form, transitionTime: form.transitionTime + 1 })}
               className="w-9 h-9 bg-white/20 rounded-full font-bold"
             >
               +
@@ -161,16 +161,16 @@ export const NewRecipeForm = ({ onClose, onSave }) => {
 
         <div>
           <label className="text-xs text-zinc-400 mb-1 block">Tiempo por lado</label>
-          {recipe.steps.map((step, i) => (
+          {form.steps.map((step, i) => (
             <div key={step.id} className="flex items-center justify-between py-2">
               <span>{step.name}</span>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => {
-                    const s = [...recipe.steps];
+                    const s = [...form.steps];
                     s[i].duration = Math.max(5, s[i].duration - 5);
-                    setRecipe({ ...recipe, steps: s });
+                    setForm({ ...form, steps: s });
                   }}
                   className="w-8 h-8 bg-white/10 rounded-full font-bold text-sm"
                 >
@@ -180,9 +180,9 @@ export const NewRecipeForm = ({ onClose, onSave }) => {
                 <button
                   type="button"
                   onClick={() => {
-                    const s = [...recipe.steps];
+                    const s = [...form.steps];
                     s[i].duration += 5;
-                    setRecipe({ ...recipe, steps: s });
+                    setForm({ ...form, steps: s });
                   }}
                   className="w-8 h-8 bg-white/10 rounded-full font-bold text-sm"
                 >
@@ -193,15 +193,13 @@ export const NewRecipeForm = ({ onClose, onSave }) => {
           ))}
         </div>
 
-        {error && <p className="text-amber-400 text-sm">{error}</p>}
-
         <button
-          type="submit"
+          onClick={handleSave}
           className="w-full py-4 bg-emerald-600 rounded-2xl font-bold text-lg mt-2"
         >
           Guardar
         </button>
-      </form>
+      </div>
     </div>
   );
 };

@@ -44,6 +44,18 @@ const icons = {
       <path d="M12 6v6l4 2" />
     </>
   ),
+  Egg: (
+    <ellipse cx="12" cy="13" rx="6" ry="8" strokeWidth="2" stroke="currentColor" fill="none" />
+  ),
+  Potato: (
+    <ellipse cx="12" cy="12" rx="7" ry="6" strokeWidth="2" stroke="currentColor" fill="none" strokeLinecap="round" />
+  ),
+  Beef: (
+    <path d="M4 12h16c0-4-2-8-6-8S4 8 4 12z" strokeWidth="2" stroke="currentColor" fill="none" strokeLinecap="round" />
+  ),
+  Pancake: (
+    <circle cx="12" cy="12" r="8" strokeWidth="2" stroke="currentColor" fill="none" />
+  ),
 };
 
 export const SVGIcon = ({ name, size = 24, className = "", fill = "none" }) => {
