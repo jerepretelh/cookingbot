@@ -3,11 +3,14 @@ import confetti from 'canvas-confetti';
 import { getRecipeConfig, RECIPES } from './data/recipes';
 import { Header } from './components/Header';
 import { Overlay } from './components/Overlay';
-import { Settings } from './components/Settings';
 import { RecipePicker } from './components/RecipePicker';
 import { SVGIcon } from './components/SVGIcon';
 
 const defaultConfig = getRecipeConfig(RECIPES.huevo);
+
+// Índices: -3 precalentar sartén (omitible), -2 echar aceite (manual), -1 calentar aceite, 0+ cocción
+const STEP_PREHEAT_PAN = -3;
+const STEP_HEAT_OIL = -1;
 
 function App() {
   const [config, setConfig] = useState(defaultConfig);
@@ -15,11 +18,11 @@ function App() {
   const [isRunning, setIsRunning] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [currentCycle, setCurrentCycle] = useState(0);
-  const [currentStepIndex, setCurrentStepIndex] = useState(-1);
-  const [timeLeft, setTimeLeft] = useState(config.prepTime);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [currentStepIndex, setCurrentStepIndex] = useState(STEP_PREHEAT_PAN);
+  const [timeLeft, setTimeLeft] = useState(config.preheatPanTime ?? 40);
   const [showOverlay, setShowOverlay] = useState(false);
   const [overlayMessage, setOverlayMessage] = useState('');
+  const [overlayShowSkip, setOverlayShowSkip] = useState(false);
   const [isManualWait, setIsManualWait] = useState(false);
 
   const requestRef = useRef();
@@ -31,7 +34,7 @@ function App() {
       particleCount: 150,
       spread: 70,
       origin: { y: 0.6 },
-      colors: ['#3b82f6', '#52c18d', '#f97316', '#ffffff'],
+      colors: ['#10b981', '#52c18d', '#f97316', '#ffffff'],
     });
   };
 
@@ -76,14 +79,20 @@ function App() {
   }, [timeLeft, isRunning, showOverlay]);
 
   const handleStepEnd = () => {
-    if (currentCycle === 0) {
-      triggerOverlay('¡Ya está! ¡Echa tu ingrediente y a cocinar!', true, () => {
+    const heatOilTime = config.heatOilTime ?? 40;
+    if (currentStepIndex === STEP_PREHEAT_PAN) {
+      triggerOverlay('Echa el aceite en la sartén', true, () => {
+        setCurrentStepIndex(STEP_HEAT_OIL);
+        setTimeLeft(heatOilTime);
+      });
+    } else if (currentStepIndex === STEP_HEAT_OIL) {
+      triggerOverlay(`¡Ya está! ¡Echa tu ${config.ingredient} y a cocinar!`, true, () => {
         setCurrentCycle(1);
         setCurrentStepIndex(0);
         setTimeLeft(config.steps[0].duration);
       });
     } else if (currentStepIndex === -2) {
-      triggerOverlay('¡Genial! Ahora la siguiente porción, ¡tú puedes!', true, () => {
+      triggerOverlay(`¡Genial! ¡La siguiente ${config.ingredient}!`, true, () => {
         setCurrentStepIndex(0);
         setTimeLeft(config.steps[0].duration);
       });
@@ -95,7 +104,7 @@ function App() {
       });
     } else if (currentCycle < config.cycles) {
       launchConfetti();
-      triggerOverlay('¡Listo! Sácala y ¡a descansar un poco!', true, () => {
+      triggerOverlay(`¡Listo! Saca tu ${config.ingredient} y ¡a descansar!`, true, () => {
         setCurrentCycle((c) => c + 1);
         setCurrentStepIndex(-2);
         setTimeLeft(config.transitionTime);
@@ -107,8 +116,9 @@ function App() {
     }
   };
 
-  const triggerOverlay = (msg, manual, callback) => {
+  const triggerOverlay = (msg, manual, callback, showSkip = false) => {
     setOverlayMessage(msg);
+    setOverlayShowSkip(showSkip);
     setIsManualWait(manual);
     setShowOverlay(true);
     speakLocal(msg);
@@ -118,104 +128,103 @@ function App() {
 
   const proceed = () => {
     setShowOverlay(false);
+    setOverlayShowSkip(false);
     if (proceedCallbackRef.current) {
       proceedCallbackRef.current();
       proceedCallbackRef.current = null;
     }
   };
 
+  const handleSkipPreheat = () => {
+    setShowOverlay(true);
+    setOverlayMessage('Echa el aceite en la sartén');
+    setIsManualWait(true);
+    speakLocal('Echa el aceite en la sartén');
+    proceedCallbackRef.current = () => {
+      setCurrentStepIndex(STEP_HEAT_OIL);
+      setTimeLeft(config.heatOilTime ?? 40);
+      setShowOverlay(false);
+    };
+  };
+
   const goToRecipePicker = () => {
     setShowRecipePicker(true);
     setIsRunning(false);
     setCurrentCycle(0);
-    setCurrentStepIndex(-1);
-    setTimeLeft(config.prepTime);
+    setCurrentStepIndex(STEP_PREHEAT_PAN);
+    setTimeLeft(config.preheatPanTime ?? 40);
     setShowOverlay(false);
   };
 
   const handleSelectRecipe = (newConfig) => {
     setConfig(newConfig);
-    setTimeLeft(newConfig.prepTime);
+    setTimeLeft(newConfig.preheatPanTime ?? 40);
     setCurrentCycle(0);
-    setCurrentStepIndex(-1);
+    setCurrentStepIndex(STEP_PREHEAT_PAN);
   };
 
   const handleStart = () => {
     setShowRecipePicker(false);
-    speakLocal(`¡Arrancamos con ${config.ingredient}! ¡Vamos a cocinar!`);
+    speakLocal(`Precalienta la sartén y vamos a cocinar ${config.ingredient}. ¡Empezamos!`);
     setIsRunning(true);
   };
 
   const theme = (() => {
-    if (currentStepIndex === -1) return { label: 'Calentando...', color: '#3b82f6' };
-    if (currentStepIndex === -2) return { label: 'Siguiente porción', color: '#a855f7' };
+    if (currentStepIndex === STEP_PREHEAT_PAN) return { label: '¡Vamos a cocinar!', color: '#64748b' };
+    if (currentStepIndex === STEP_HEAT_OIL) return { label: 'Calentando aceite', color: '#3b82f6' };
+    if (currentStepIndex === -2) return { label: `Siguiente ${config.ingredient}`, color: '#a855f7' };
     return { label: config.steps[currentStepIndex].name, color: config.steps[currentStepIndex].hex };
   })();
 
-  const maxTime =
-    currentStepIndex === -1
-      ? config.prepTime
-      : currentStepIndex === -2
-        ? config.transitionTime
-        : config.steps[currentStepIndex].duration;
+  const getMaxTime = () => {
+    if (currentStepIndex === STEP_PREHEAT_PAN) return config.preheatPanTime ?? 40;
+    if (currentStepIndex === STEP_HEAT_OIL) return config.heatOilTime ?? 40;
+    if (currentStepIndex === -2) return config.transitionTime;
+    return config.steps[currentStepIndex]?.duration ?? 60;
+  };
+
+  const maxTime = getMaxTime();
   const radius = 42;
   const circ = 2 * Math.PI * radius;
-  const offset = circ - (timeLeft / maxTime) * circ;
+  const offset = maxTime > 0 ? circ - (timeLeft / maxTime) * circ : circ;
 
   if (showRecipePicker) {
     return (
-      <div className="h-screen bg-black text-white flex flex-col font-sans select-none overflow-hidden">
-        <Header
-          isMuted={isMuted}
-          onToggleMute={() => setIsMuted(!isMuted)}
-          onOpenSettings={() => setIsSettingsOpen(true)}
-        />
-        <RecipePicker
-          onSelectRecipe={handleSelectRecipe}
-          onStart={handleStart}
-        />
-        {isSettingsOpen && (
-          <Settings
-            config={config}
-            setConfig={(c) => {
-              setConfig(c);
-              setTimeLeft(c.prepTime);
-            }}
-            onClose={() => setIsSettingsOpen(false)}
-            onApply={() => setIsSettingsOpen(false)}
-          />
-        )}
+      <div className="h-screen bg-zinc-900 text-white flex flex-col select-none overflow-hidden">
+        <Header isMuted={isMuted} onToggleMute={() => setIsMuted(!isMuted)} showSettings={false} />
+        <RecipePicker onSelectRecipe={handleSelectRecipe} onStart={handleStart} />
       </div>
     );
   }
 
   return (
-    <div className="h-screen bg-black text-white flex flex-col font-sans select-none relative overflow-hidden">
+    <div className="h-screen bg-zinc-900 text-white flex flex-col font-sans select-none relative overflow-hidden">
       <Header
         isMuted={isMuted}
         onToggleMute={() => setIsMuted(!isMuted)}
-        onOpenSettings={() => setIsSettingsOpen(true)}
+        showSettings={false}
+        onOtherRecipe={goToRecipePicker}
       />
 
-      <div className="flex justify-center gap-2 mb-4">
+      <div className="flex justify-center gap-1.5 mb-2">
         {[...Array(config.cycles)].map((_, i) => (
           <div
             key={i}
-            className={`h-1 rounded-full transition-all duration-700 ${
+            className={`h-1 rounded-full transition-all duration-500 ${
               i < currentCycle - 1
-                ? 'w-4 bg-blue-500'
+                ? 'w-4 bg-emerald-500'
                 : i === (currentCycle > 0 ? currentCycle - 1 : 0) && currentCycle > 0
-                  ? 'w-10 bg-white shadow-[0_0_10px_white]'
-                  : 'w-4 bg-zinc-800'
+                  ? 'w-8 bg-white'
+                  : 'w-4 bg-white/20'
             }`}
           />
         ))}
       </div>
 
       <main className="flex-1 flex flex-col items-center justify-center px-6">
-        <div className="relative w-full aspect-square max-w-[340px] flex items-center justify-center">
+        <div className="relative w-full aspect-square max-w-[300px] flex items-center justify-center">
           <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
-            <circle cx="50" cy="50" r={radius} stroke="rgba(255,255,255,0.06)" strokeWidth="4.5" fill="none" />
+            <circle cx="50" cy="50" r={radius} stroke="rgba(255,255,255,0.08)" strokeWidth="4" fill="none" />
             <circle
               cx="50"
               cy="50"
@@ -230,62 +239,49 @@ function App() {
             />
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className="text-[120px] font-black italic tracking-tighter tabular-nums leading-none">
+            <span className="text-[100px] font-bold tabular-nums leading-none">
               {Math.ceil(timeLeft)}
             </span>
-            <div className="mt-2 flex flex-col items-center gap-1">
-              <div className="flex items-center gap-2">
-                <div
-                  className="w-1.5 h-1.5 rounded-full animate-pulse-soft"
-                  style={{ backgroundColor: theme.color }}
-                />
-                <span className="text-[11px] font-black uppercase tracking-[0.25em]" style={{ color: theme.color }}>
-                  {theme.label}
-                </span>
-              </div>
+            <div className="mt-2 flex items-center gap-2">
+              <div
+                className="w-2 h-2 rounded-full animate-pulse"
+                style={{ backgroundColor: theme.color }}
+              />
+              <span className="text-sm font-medium" style={{ color: theme.color }}>
+                {theme.label}
+              </span>
             </div>
           </div>
         </div>
 
-        <div className="mt-16 w-full max-w-xs flex flex-col items-center space-y-6">
+        <div className="mt-12 flex flex-col items-center gap-5">
           <button
             onClick={() => setIsRunning(!isRunning)}
-            className="w-[200px] h-[68px] bg-white text-black rounded-full flex items-center justify-center gap-3 shadow-[0_20px_40px_rgba(255,255,255,0.15)] active:scale-95 transition-all"
+            className="w-64 h-20 bg-white text-zinc-900 rounded-full flex items-center justify-center gap-3 text-xl font-bold active:scale-[0.98] transition-transform min-h-[56px]"
           >
-            <SVGIcon name={isRunning ? 'Pause' : 'Play'} size={24} fill="currentColor" />
-            <span className="text-base font-black uppercase tracking-widest leading-none">
-              {isRunning ? 'Pausar' : 'Seguir'}
-            </span>
+            <SVGIcon name={isRunning ? 'Pause' : 'Play'} size={28} fill="currentColor" />
+            {isRunning ? 'Pausar' : 'Seguir'}
           </button>
-          <button
-            onClick={goToRecipePicker}
-            className="text-[10px] font-bold uppercase tracking-[0.4em] text-zinc-600 hover:text-white transition-colors"
-          >
-            Elegir otra receta
-          </button>
+          {currentStepIndex === STEP_PREHEAT_PAN && isRunning && (
+            <button
+              onClick={handleSkipPreheat}
+              className="py-4 px-8 text-base text-zinc-500 hover:text-white min-h-[48px]"
+            >
+              Omitir precalentado
+            </button>
+          )}
         </div>
       </main>
 
       {showOverlay && (
-        <Overlay message={overlayMessage} isManualWait={isManualWait} onProceed={proceed} />
-      )}
-
-      {isSettingsOpen && (
-        <Settings
-          config={config}
-          setConfig={(c) => {
-            setConfig(c);
-            if (currentStepIndex === -1) setTimeLeft(c.prepTime);
-          }}
-          onClose={() => setIsSettingsOpen(false)}
-          onApply={() => {
-            setIsSettingsOpen(false);
-            setTimeLeft(config.prepTime);
-            setCurrentCycle(0);
-            setCurrentStepIndex(-1);
-          }}
+        <Overlay
+          message={overlayMessage}
+          isManualWait={isManualWait}
+          onProceed={proceed}
+          showSkip={false}
         />
       )}
+
     </div>
   );
 }

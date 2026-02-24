@@ -11,8 +11,10 @@ export const Settings = ({ config, setConfig, onClose, onApply }) => {
   };
 
   const settingsItems = [
-    { label: 'Porciones a cocinar', key: 'cycles', value: config.cycles },
-    { label: 'Tiempo de calentado (s)', key: 'prepTime', value: config.prepTime },
+    { label: 'Porciones', key: 'cycles', value: config.cycles },
+    { label: 'Calentar sartén (s)', key: 'preheatPanTime', value: config.preheatPanTime ?? 40 },
+    { label: 'Calentar aceite (s)', key: 'heatOilTime', value: config.heatOilTime ?? 40 },
+    { label: 'Entre porciones (s)', key: 'transitionTime', value: config.transitionTime },
     ...config.steps.map((s, i) => ({
       label: s.name,
       key: `step-${i}`,
@@ -43,9 +45,9 @@ export const Settings = ({ config, setConfig, onClose, onApply }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-[100] bg-black p-8 flex flex-col">
+    <div className="fixed inset-0 z-[100] bg-zinc-900 p-6 flex flex-col">
       <div className="flex justify-between items-center mb-10">
-        <h2 className="text-3xl font-black italic uppercase">Ajustes</h2>
+        <h2 className="text-xl font-bold">Ajustes</h2>
         <button
           onClick={onClose}
           className="w-12 h-12 bg-zinc-900 rounded-2xl flex items-center justify-center border border-white/5"
@@ -56,8 +58,8 @@ export const Settings = ({ config, setConfig, onClose, onApply }) => {
 
       <div className="space-y-6 overflow-y-auto flex-1 pb-10">
         {/* Selector de recetas */}
-        <div className="bg-zinc-900/40 p-6 rounded-[32px] border border-white/5">
-          <label className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider mb-3 block">
+        <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
+          <label className="text-xs font-medium text-zinc-500 mb-2 block">
             Receta
           </label>
           <div className="flex flex-wrap gap-2">
@@ -67,8 +69,8 @@ export const Settings = ({ config, setConfig, onClose, onApply }) => {
                 onClick={() => handleSelectRecipe(recipe.id)}
                 className={`px-5 py-3 rounded-2xl font-bold text-sm uppercase transition-all ${
                   config.recipeId === recipe.id
-                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30'
-                    : 'bg-zinc-800/60 text-zinc-400 hover:bg-zinc-700/60 hover:text-white'
+                    ? 'bg-emerald-600 text-white'
+                    : 'bg-white/5 text-zinc-400 hover:text-white'
                 }`}
               >
                 {recipe.name}
@@ -77,15 +79,15 @@ export const Settings = ({ config, setConfig, onClose, onApply }) => {
           </div>
         </div>
 
-        <div className="bg-zinc-900/40 p-6 rounded-[32px] border border-white/5">
-          <label className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider mb-3 block">
+        <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
+          <label className="text-xs font-medium text-zinc-500 mb-2 block">
             Nombre del plato
           </label>
           <input
             type="text"
             value={config.ingredient}
             onChange={(e) => setConfig({ ...config, ingredient: e.target.value })}
-            className="bg-transparent text-2xl font-black w-full outline-none uppercase text-blue-500"
+            className="bg-transparent text-xl font-semibold w-full outline-none text-emerald-400"
             placeholder="Ej: Huevo, Pancake..."
           />
         </div>
@@ -94,7 +96,7 @@ export const Settings = ({ config, setConfig, onClose, onApply }) => {
           {settingsItems.map((item, idx) => (
             <div
               key={idx}
-              className="bg-zinc-900/40 px-6 py-5 rounded-[32px] border border-white/5 flex items-center justify-between"
+              className="bg-white/5 px-4 py-4 rounded-2xl border border-white/5 flex items-center justify-between"
             >
               <span className="text-[10px] font-black uppercase tracking-wider text-zinc-400">{item.label}</span>
               <div className="flex items-center gap-4 bg-zinc-800/30 p-2 rounded-full border border-white/5">
@@ -119,7 +121,7 @@ export const Settings = ({ config, setConfig, onClose, onApply }) => {
 
       <button
         onClick={onApply}
-        className="w-full mt-4 py-6 bg-blue-600 rounded-[32px] font-black uppercase tracking-widest text-sm shadow-xl shadow-blue-500/20"
+        className="w-full mt-4 py-4 bg-emerald-600 rounded-2xl font-semibold"
       >
         ¡Listo!
       </button>
