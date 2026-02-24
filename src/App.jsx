@@ -1,23 +1,17 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import confetti from 'canvas-confetti';
+import { getRecipeConfig, RECIPES } from './data/recipes';
 import { Header } from './components/Header';
 import { Overlay } from './components/Overlay';
 import { Settings } from './components/Settings';
+import { RecipePicker } from './components/RecipePicker';
 import { SVGIcon } from './components/SVGIcon';
 
-const defaultConfig = {
-  ingredient: "Huevo",
-  prepTime: 10,
-  cycles: 3,
-  transitionTime: 5,
-  steps: [
-    { id: 1, name: "COCINAR LADO A", duration: 30, hex: "#52c18d" },
-    { id: 2, name: "COCINAR LADO B", duration: 20, hex: "#f97316" },
-  ],
-};
+const defaultConfig = getRecipeConfig(RECIPES.huevo);
 
 function App() {
   const [config, setConfig] = useState(defaultConfig);
+  const [showRecipePicker, setShowRecipePicker] = useState(true);
   const [isRunning, setIsRunning] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [currentCycle, setCurrentCycle] = useState(0);
@@ -25,7 +19,7 @@ function App() {
   const [timeLeft, setTimeLeft] = useState(config.prepTime);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [showOverlay, setShowOverlay] = useState(false);
-  const [overlayMessage, setOverlayMessage] = useState("");
+  const [overlayMessage, setOverlayMessage] = useState('');
   const [isManualWait, setIsManualWait] = useState(false);
 
   const requestRef = useRef();
@@ -41,28 +35,34 @@ function App() {
     });
   };
 
-  const speakLocal = useCallback((text) => {
-    if (isMuted || !window.speechSynthesis) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'es-ES';
-    utterance.rate = 1.1;
-    window.speechSynthesis.speak(utterance);
-  }, [isMuted]);
+  const speakLocal = useCallback(
+    (text) => {
+      if (isMuted || !window.speechSynthesis) return;
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'es-ES';
+      utterance.rate = 1.1;
+      window.speechSynthesis.speak(utterance);
+    },
+    [isMuted]
+  );
 
-  const animate = useCallback((time) => {
-    if (previousTimeRef.current !== undefined) {
-      const deltaTime = (time - previousTimeRef.current) / 1000;
-      if (isRunning && !showOverlay) {
-        setTimeLeft((prev) => {
-          const next = prev - deltaTime;
-          return next <= 0 ? 0 : next;
-        });
+  const animate = useCallback(
+    (time) => {
+      if (previousTimeRef.current !== undefined) {
+        const deltaTime = (time - previousTimeRef.current) / 1000;
+        if (isRunning && !showOverlay) {
+          setTimeLeft((prev) => {
+            const next = prev - deltaTime;
+            return next <= 0 ? 0 : next;
+          });
+        }
       }
-    }
-    previousTimeRef.current = time;
-    requestRef.current = requestAnimationFrame(animate);
-  }, [isRunning, showOverlay]);
+      previousTimeRef.current = time;
+      requestRef.current = requestAnimationFrame(animate);
+    },
+    [isRunning, showOverlay]
+  );
 
   useEffect(() => {
     requestRef.current = requestAnimationFrame(animate);
@@ -76,26 +76,26 @@ function App() {
   }, [timeLeft, isRunning, showOverlay]);
 
   const handleStepEnd = () => {
-    const ing = config.ingredient;
     if (currentCycle === 0) {
-      triggerOverlay(`¡Aceite listo! Pon el ${ing} ahora.`, true, () => {
+      triggerOverlay('¡Ya está! ¡Echa tu ingrediente y a cocinar!', true, () => {
         setCurrentCycle(1);
         setCurrentStepIndex(0);
         setTimeLeft(config.steps[0].duration);
       });
     } else if (currentStepIndex === -2) {
-      triggerOverlay(`Sartén lista. ¡Pon el siguiente ${ing}!`, true, () => {
+      triggerOverlay('¡Genial! Ahora la siguiente porción, ¡tú puedes!', true, () => {
         setCurrentStepIndex(0);
         setTimeLeft(config.steps[0].duration);
       });
     } else if (currentStepIndex < config.steps.length - 1) {
       const nextIdx = currentStepIndex + 1;
-      triggerOverlay(`¡Voltea el ${ing}!`, false, () => {
+      triggerOverlay('¡Dale la vuelta! ¡Va perfecto!', false, () => {
         setCurrentStepIndex(nextIdx);
         setTimeLeft(config.steps[nextIdx].duration);
       });
     } else if (currentCycle < config.cycles) {
-      triggerOverlay(`${ing} terminado. Retíralo.`, true, () => {
+      launchConfetti();
+      triggerOverlay('¡Listo! Sácala y ¡a descansar un poco!', true, () => {
         setCurrentCycle((c) => c + 1);
         setCurrentStepIndex(-2);
         setTimeLeft(config.transitionTime);
@@ -103,7 +103,7 @@ function App() {
     } else {
       setIsRunning(false);
       launchConfetti();
-      triggerOverlay("¡Cocina completada!", true, () => resetTimer());
+      triggerOverlay('¡Felicidades! ¡Todo tu menú está listo!', true, () => goToRecipePicker());
     }
   };
 
@@ -124,7 +124,8 @@ function App() {
     }
   };
 
-  const resetTimer = () => {
+  const goToRecipePicker = () => {
+    setShowRecipePicker(true);
     setIsRunning(false);
     setCurrentCycle(0);
     setCurrentStepIndex(-1);
@@ -132,9 +133,22 @@ function App() {
     setShowOverlay(false);
   };
 
+  const handleSelectRecipe = (newConfig) => {
+    setConfig(newConfig);
+    setTimeLeft(newConfig.prepTime);
+    setCurrentCycle(0);
+    setCurrentStepIndex(-1);
+  };
+
+  const handleStart = () => {
+    setShowRecipePicker(false);
+    speakLocal(`¡Arrancamos con ${config.ingredient}! ¡Vamos a cocinar!`);
+    setIsRunning(true);
+  };
+
   const theme = (() => {
-    if (currentStepIndex === -1) return { label: "CALENTANDO ACEITE", color: "#3b82f6" };
-    if (currentStepIndex === -2) return { label: "ESPERANDO UNIDAD", color: "#a855f7" };
+    if (currentStepIndex === -1) return { label: 'Calentando...', color: '#3b82f6' };
+    if (currentStepIndex === -2) return { label: 'Siguiente porción', color: '#a855f7' };
     return { label: config.steps[currentStepIndex].name, color: config.steps[currentStepIndex].hex };
   })();
 
@@ -147,6 +161,33 @@ function App() {
   const radius = 42;
   const circ = 2 * Math.PI * radius;
   const offset = circ - (timeLeft / maxTime) * circ;
+
+  if (showRecipePicker) {
+    return (
+      <div className="h-screen bg-black text-white flex flex-col font-sans select-none overflow-hidden">
+        <Header
+          isMuted={isMuted}
+          onToggleMute={() => setIsMuted(!isMuted)}
+          onOpenSettings={() => setIsSettingsOpen(true)}
+        />
+        <RecipePicker
+          onSelectRecipe={handleSelectRecipe}
+          onStart={handleStart}
+        />
+        {isSettingsOpen && (
+          <Settings
+            config={config}
+            setConfig={(c) => {
+              setConfig(c);
+              setTimeLeft(c.prepTime);
+            }}
+            onClose={() => setIsSettingsOpen(false)}
+            onApply={() => setIsSettingsOpen(false)}
+          />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="h-screen bg-black text-white flex flex-col font-sans select-none relative overflow-hidden">
@@ -208,22 +249,19 @@ function App() {
 
         <div className="mt-16 w-full max-w-xs flex flex-col items-center space-y-6">
           <button
-            onClick={() => {
-              if (!isRunning && currentCycle === 0) speakLocal(`Iniciando cocina de ${config.ingredient}`);
-              setIsRunning(!isRunning);
-            }}
+            onClick={() => setIsRunning(!isRunning)}
             className="w-[200px] h-[68px] bg-white text-black rounded-full flex items-center justify-center gap-3 shadow-[0_20px_40px_rgba(255,255,255,0.15)] active:scale-95 transition-all"
           >
-            <SVGIcon name={isRunning ? "Pause" : "Play"} size={24} fill="currentColor" />
+            <SVGIcon name={isRunning ? 'Pause' : 'Play'} size={24} fill="currentColor" />
             <span className="text-base font-black uppercase tracking-widest leading-none">
-              {isRunning ? "PAUSAR" : "INICIAR"}
+              {isRunning ? 'Pausar' : 'Seguir'}
             </span>
           </button>
           <button
-            onClick={resetTimer}
+            onClick={goToRecipePicker}
             className="text-[10px] font-bold uppercase tracking-[0.4em] text-zinc-600 hover:text-white transition-colors"
           >
-            Reiniciar Sesión
+            Elegir otra receta
           </button>
         </div>
       </main>
@@ -235,11 +273,16 @@ function App() {
       {isSettingsOpen && (
         <Settings
           config={config}
-          setConfig={setConfig}
+          setConfig={(c) => {
+            setConfig(c);
+            if (currentStepIndex === -1) setTimeLeft(c.prepTime);
+          }}
           onClose={() => setIsSettingsOpen(false)}
           onApply={() => {
             setIsSettingsOpen(false);
-            resetTimer();
+            setTimeLeft(config.prepTime);
+            setCurrentCycle(0);
+            setCurrentStepIndex(-1);
           }}
         />
       )}
